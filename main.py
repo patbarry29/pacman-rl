@@ -1,16 +1,23 @@
+import os
 import pygame
 import numpy as np
+import sys
+from matplotlib import pyplot as plt
+
 import config
 
 # Import modules from your project structure
-from utils.helpers import make_grid
 from visualisation.pygame_renderer import PygameRenderer
 from environment.grid_loader import load_grid
 from environment.grid_env import GridEnv
 from agents.q_learning_agent import QLearningAgent
 from visualisation.q_table_visualizer import plot_final_policy, make_policy_gif
+from utils.evaluation import evaluate_policy
 
 def run_human_game(env, renderer):
+    """
+    Allows a human player to control Pacman in the environment.
+    """
     player_state = env.reset()
     game_over = False
 
@@ -28,160 +35,198 @@ def run_human_game(env, renderer):
 
         if action is not None:
             _, reward, done = env.step(action)
-            player_state = env.player_pos # Update player_state from env after step
+            player_state = env.player_pos
 
             if done:
                 game_over = True
                 print(f"Game Over! {'Win!' if reward == config.REWARDS['GOAL'] else 'Loss!'}")
-                pygame.time.wait(2000) # Show final state for a moment
-
-        # pygame.time.wait(config.HUMAN_RENDER_DELAY_MS)
+                pygame.time.wait(2000)
 
     renderer.close_display()
 
-def run_agent_game(env, agent, renderer, num_episodes=1, training_mode=False):
-    renderer.init_display(f"RL vs Pacman (Agent {'Training' if training_mode else 'Playing'})")
-
+def run_agent_visualization(env, agent, renderer, num_games_to_play, delay_ms):
+    """
+    Visualizes an agent playing the game on the Pygame grid for a few games.
+    The agent uses its current Q-table (typically in exploitation mode).
+    """
+    renderer.init_display("RL vs Pacman (Agent Playing)")
     original_epsilon = agent.epsilon
-    original_decay = agent.decay
+    agent.epsilon = config.AGENT_PARAMS['min_epsilon']
 
-    if not training_mode:
-        agent.epsilon = config.AGENT_PARAMS['min_epsilon']
-        agent.decay = 0
+    print(f"\nVisualizing agent playing {num_games_to_play} games...")
+    should_quit_visualization = False
 
-    for episode in range(num_episodes):
+    for game_num in range(num_games_to_play):
+        if should_quit_visualization:
+            break
         player_pos = env.reset()
         game_over = False
-        print(f"Starting Episode {episode + 1}/{num_episodes}")
+        steps_this_game = 0
+        print(f"Starting visualization game {game_num + 1}/{num_games_to_play}")
 
         while not game_over:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    game_over = True
+                    should_quit_visualization = True
+                    print("Visualization interrupted by user (Pygame window close).")
+                    break
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    game_over = True
+                    should_quit_visualization = True
+                    print("Visualization interrupted by user (ESC key).")
+                    break
+            if game_over:
+                break
             current_display_grid = env.get_grid_snapshot()
             renderer.render(current_display_grid, player_pos=player_pos)
-
             action = agent.choose_action(player_pos)
-
-            old_player_pos = player_pos
             player_pos, reward, done = env.step(action)
-
-            if training_mode:
-                agent.learn(old_player_pos, action, reward, player_pos)
-                if agent.epsilon > agent.min_epsilon:
-                    agent.epsilon -= agent.decay
-                else:
-                    agent.epsilon = agent.min_epsilon
-
+            steps_this_game += 1
             if done:
-                game_over = True
-                print(f"Episode {episode + 1} finished. Result: {'Win!' if reward == config.REWARDS['GOAL'] else 'Loss!'}")
+                game_over=True
+                game_state = 'win' if reward == config.REWARDS['GOAL'] else 'loss'
+                result = 'Win!' if game_state == 'win' else 'Loss!'
+                print(f"Game {game_num + 1} finished in {steps_this_game} steps. Result: {result}")
+                renderer.render(env.get_grid_snapshot(), player_pos=player_pos)
                 pygame.time.wait(1000)
-                break
+            pygame.time.wait(delay_ms)
 
-            pygame.time.wait(config.AGENT_RENDER_DELAY_MS)
 
+    pygame.time.wait(1000)
     renderer.close_display()
-
     agent.epsilon = original_epsilon
-    agent.decay = original_decay
 
 
-if __name__ == "__main__":
-    grid_filepath = "grid.npy"
+def execute_single_agent_training_mode(env):
+    """
+    Trains a single Q-Learning agent using parameters from config.py
+    and plots its learning performance, also generates a policy GIF.
+    """
+    q_agent = QLearningAgent(env,
+                            alpha=config.AGENT_PARAMS['alpha'],
+                            epsilon=config.AGENT_PARAMS['epsilon'],
+                            gamma=config.AGENT_PARAMS['gamma'],
+                            decay=config.AGENT_PARAMS['decay'],
+                            min_epsilon=config.AGENT_PARAMS['min_epsilon'])
 
-    grid, start_pos, goal_pos, ghost_positions = load_grid(grid_filepath)
+    print("\nStarting Q-Learning training for a single agent...")
+    final_q_table, history_values, history_actions = q_agent.train(
+        num_episodes=config.AGENT_PARAMS['num_episodes'],
+        max_steps_per_episode=config.AGENT_PARAMS['max_steps_per_episode']
+    )
 
-    # Initialize environment
-    env = GridEnv(grid, start_pos, goal_pos, ghost_positions)
+    q_agent.save_q_table(config.AGENT_PARAMS['q_table_save_path'])
+    print(f"Trained Q-table saved to: {config.AGENT_PARAMS['q_table_save_path']}")
 
-    # Initialize renderer
-    renderer = PygameRenderer(env.height, env.width)
+    print("\nGenerating policy GIF...")
+    make_policy_gif(history_values, history_actions, env, config.REWARDS,
+                    filename="policy_evolution_single_agent.gif")
+    print("Policy GIF generated as policy_evolution_single_agent.gif")
 
-    # --- Choose Mode ---
+
+def execute_agent_visualization_mode(env, renderer):
+    """
+    Handles the visualization of a pre-trained Q-Learning agent.
+    """
+    q_agent = QLearningAgent(env)
+    q_table_to_load = config.BEST_Q_TABLE_PATH
+
+    q_agent.load_q_table(q_table_to_load)
+
+    run_agent_visualization(
+        env,
+        q_agent,
+        renderer,
+        num_games_to_play=1,
+        delay_ms=config.AGENT_RENDER_DELAY_MS
+    )
+
+def execute_policy_plotting_mode(env):
+    """
+    Handles plotting the final policy from a Q-table.
+    """
+    q_agent = QLearningAgent(env)
+    q_table_to_load = config.BEST_Q_TABLE_PATH
+
+    try:
+        q_agent.load_q_table(q_table_to_load)
+        final_q_table = q_agent.q_table
+        print(f"Loaded Q-table from: {q_table_to_load} for policy plotting.")
+    except FileNotFoundError:
+        print(f"Q-table not found at {q_table_to_load}. Performing a quick training run to generate a policy for plotting...")
+        q_agent_for_plot_train = QLearningAgent(env,
+                                                alpha=config.AGENT_PARAMS['alpha'],
+                                                epsilon=config.AGENT_PARAMS['epsilon'],
+                                                gamma=config.AGENT_PARAMS['gamma'],
+                                                decay=config.AGENT_PARAMS['decay'],
+                                                min_epsilon=config.AGENT_PARAMS['min_epsilon'])
+        final_q_table, _, _ = q_agent_for_plot_train.train(
+            num_episodes=config.AGENT_PARAMS.get('num_episodes_for_quick_train', 500)
+        )
+        print("Quick training complete.")
+
+    print("\nGenerating final policy plot...")
+    policy_plot_filename = os.path.join("experiment_results", "final_q_policy.png")
+    plot_final_policy(final_q_table, env, config.REWARDS, filename=policy_plot_filename)
+    print(f"Final policy plot generated and saved to {policy_plot_filename}")
+
+# NEW FUNCTION FOR POLICY EVALUATION
+def execute_policy_evaluation_mode(env, renderer):
+    """
+    Loads a trained agent and evaluates its policy, printing quantitative metrics.
+    """
+    q_agent = QLearningAgent(env)
+    q_table_to_load = config.BEST_Q_TABLE_PATH
+
+    q_agent.load_q_table(q_table_to_load)
+
+    evaluate_policy(
+        env,
+        q_agent,
+        num_eval_episodes=config.EVAL_PARAMS['num_eval_episodes'],
+        max_steps_per_episode=config.EVAL_PARAMS['max_steps_per_episode'],
+    )
+
+def display_menu_and_get_choice():
+    """ Displays the main menu and gets user input. """
     print("\n--- RL vs Pacman ---")
     print("Select mode:")
     print("1. Play as Human")
-    print("2. Train Q-Learning Agent & Generate Policy GIF")
+    print("2. Train Single Q-Learning Agent & Generate Policy GIF")
     print("3. Visualize Trained Q-Learning Agent (interactive game play)")
     print("4. Plot Final Q-Learning Policy (static image)")
-    print("5. Exit")
+    print("5. Evaluate Learned Policy (quantitative metrics)")
+    return input("Enter choice (1-5): ")
 
-    choice = input("Enter choice (1-5): ")
+def main():
+    """ Main function to initialize components and run the selected mode. """
+    grid_filepath = config.ENV_PARAMS.get('grid_filepath', "grid.npy")
+    grid, start_pos, goal_pos, ghost_positions = load_grid(grid_filepath)
+    env = GridEnv(grid, start_pos, goal_pos, ghost_positions)
+    renderer = PygameRenderer(env.height, env.width)
+
+    choice = display_menu_and_get_choice()
+
+    output_dir = "experiment_results"
+    os.makedirs(output_dir, exist_ok=True)
 
     if choice == '1':
         run_human_game(env, renderer)
     elif choice == '2':
-        # Initialize Q-learning agent with parameters from config
-        q_agent = QLearningAgent(env,
-                                alpha=config.AGENT_PARAMS['alpha'],
-                                epsilon=config.AGENT_PARAMS['epsilon'],
-                                gamma=config.AGENT_PARAMS['gamma'],
-                                decay=config.AGENT_PARAMS['decay'],
-                                min_epsilon=config.AGENT_PARAMS['min_epsilon'])
-
-        print("\nStarting Q-Learning training...")
-        final_q_table, history_values, history_actions = q_agent.train(
-            num_episodes=config.AGENT_PARAMS['num_episodes'],
-            max_steps_per_episode=config.AGENT_PARAMS['max_steps_per_episode']
-        )
-
-        # Save the trained Q-table
-        q_agent.save_q_table(config.AGENT_PARAMS['q_table_save_path'])
-
-        print("Training complete. Generating policy GIF...")
-        make_policy_gif(history_values, history_actions, env, config.REWARDS)
-        print("GIF generation complete.")
-
+        execute_single_agent_training_mode(env)
     elif choice == '3':
-        # Visualize trained Q-Learning Agent playing interactively
-        q_agent = QLearningAgent(env) # Initialize with default parameters
-
-        # Attempt to load a pre-trained Q-table
-        q_agent.load_q_table(config.AGENT_PARAMS['q_table_save_path'])
-
-        # If no Q-table was loaded (e.g., file not found or first run), offer to train a bit
-        if np.all(q_agent.q_table == 0):
-            print("No saved Q-table found or loaded. Performing a quick training run for visualization...")
-            # Use specific parameters for quick training for visualization
-            q_agent_for_viz_train = QLearningAgent(env,
-                                            alpha=config.AGENT_PARAMS['alpha'],
-                                            epsilon=config.AGENT_PARAMS['epsilon'],
-                                            gamma=config.AGENT_PARAMS['gamma'],
-                                            decay=config.AGENT_PARAMS['decay'],
-                                            min_epsilon=config.AGENT_PARAMS['min_epsilon'])
-            q_agent_for_viz_train.train(num_episodes=config.AGENT_PARAMS['num_episodes_for_viz_play'])
-            q_agent = q_agent_for_viz_train # Use this agent for playing
-
-        print("\nVisualizing Q-Learning Agent gameplay...")
-        # Run agent for a few episodes in exploitation mode (low epsilon handled in run_agent_game)
-        run_agent_game(env, q_agent, renderer, num_episodes=5, training_mode=False)
-
+        execute_agent_visualization_mode(env, renderer)
     elif choice == '4':
-        # Plot the final policy without GIF
-        q_agent = QLearningAgent(env) # Initialize with default parameters
-
-        # Attempt to load a pre-trained Q-table
-        q_agent.load_q_table(config.AGENT_PARAMS['q_table_save_path'])
-
-        # If no Q-table was loaded, perform a quick training run
-        if np.all(q_agent.q_table == 0):
-            print("No saved Q-table found or loaded. Performing a quick training run to generate a policy for plotting...")
-            q_agent_for_plot_train = QLearningAgent(env,
-                                                    alpha=config.AGENT_PARAMS['alpha'],
-                                                    epsilon=config.AGENT_PARAMS['epsilon'],
-                                                    gamma=config.AGENT_PARAMS['gamma'],
-                                                    decay=config.AGENT_PARAMS['decay'],
-                                                    min_epsilon=config.AGENT_PARAMS['min_epsilon'])
-            final_q_table, _, _ = q_agent_for_plot_train.train(
-                num_episodes=config.AGENT_PARAMS['num_episodes_for_final_plot']
-            )
-            q_agent = q_agent_for_plot_train # Use this agent for plotting
-        else:
-            final_q_table = q_agent.q_table
-
-        print("\nGenerating final policy plot...")
-        plot_final_policy(final_q_table, env, config.REWARDS, filename="final_q_policy.png")
-        print("Final policy plot generated.")
-
+        execute_policy_plotting_mode(env)
     elif choice == '5':
-        print("Exiting game.")
+        execute_policy_evaluation_mode(env, renderer)
     else:
-        print("Invalid choice. Please enter a number between 1 and 5.")
+        print("Invalid choice. Please enter a number between 1 and 6.")
+
+    if pygame.display.get_init():
+        pygame.quit()
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()

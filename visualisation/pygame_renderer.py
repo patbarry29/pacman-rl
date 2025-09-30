@@ -218,13 +218,7 @@ class PygameRenderer:
                 blit_pos = (j * self.cell_size + 2, i * self.cell_size + 2) # Default offset
 
                 if cell_value == GRID_MAPPING['PLAYER']:
-                    # Use specific image based on direction
-                    # if 'pacman' in self.images:
                     self.screen.blit(self.images['pacman'][self.curr_pacman_dir], (j * self.cell_size + 4, i * self.cell_size + 4))
-                    # else: # Fallback to drawing a circle
-                    #     pygame.draw.circle(self.screen, COLOURS['YELLOW'],
-                    #                      (j * self.cell_size + self.cell_size // 2, i * self.cell_size + self.cell_size // 2),
-                    #                      self.cell_size // 3)
                 elif cell_value in self.images:
                     self.screen.blit(self.images[cell_value], blit_pos)
 

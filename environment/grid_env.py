@@ -1,4 +1,3 @@
-# environment/grid_env.py
 import numpy as np
 import random
 from config import GRID_MAPPING, ACTIONS, REWARDS, RANDOM_MOVE_PROB # Assume REWARDS and RANDOM_MOVE_PROB are in config

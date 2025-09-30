@@ -15,6 +15,8 @@ class QLearningAgent:
 
         self.history_values = []
         self.history_actions = []
+        self.history_steps = []
+        self.history_reward = []
 
     def _state_to_idx(self, pos):
         # Converts (row, col) position to a linear state index.
@@ -55,6 +57,7 @@ class QLearningAgent:
             player_pos = self.env.reset()
             game_over = False
             steps_this_episode = 0
+            total_reward = 0
 
             for step in range(max_steps_per_episode):
                 action = self.choose_action(player_pos)
@@ -62,6 +65,8 @@ class QLearningAgent:
                 old_player_pos = player_pos
 
                 player_pos, reward, game_over = self.env.step(action)
+
+                total_reward += reward
 
                 self.learn(old_player_pos, action, reward, player_pos)
 
@@ -82,8 +87,11 @@ class QLearningAgent:
             # if episode % 10 == 0 or episode == num_episodes - 1:
             best_actions = np.argmax(self.q_table, axis=1).reshape(self.env.height, self.env.width)
             max_values   = np.max(self.q_table, axis=1).reshape(self.env.height, self.env.width)
+
             self.history_actions.append(best_actions.copy())
             self.history_values.append(max_values.copy())
+            self.history_steps.append(steps_this_episode)
+            self.history_reward.append(total_reward)
 
             # if (episode + 1) % 50 == 0:
             #     print(f"Episode {episode + 1}/{num_episodes}: Epsilon={self.epsilon:.2f}, Min steps to goal={min_steps_to_goal}")
