@@ -112,3 +112,27 @@ class GridEnv:
         if dc == -1: return 'left'  # noqa: E701
         if dc == 1: return 'right'  # noqa: E701
         return 'right' # Fallback
+
+    def simulate_step(self, state, action):
+        r, c = state
+        dr, dc = self.action_map[action]
+        new_r, new_c = r + dr, c + dc
+
+        reward = REWARDS['STEP']
+        done = False
+
+        if not (0 <= new_r < self.height and 0 <= new_c < self.width) or \
+        self.base_grid[new_r, new_c] == GRID_MAPPING['BLOCK']:
+            # Invalid move: stay in place
+            return state, reward, done
+
+        new_state = (new_r, new_c)
+
+        if new_state in self.ghost_positions:
+            reward = REWARDS['GHOST']
+            done = True
+        elif new_state == self.goal_pos:
+            reward = REWARDS['GOAL']
+            done = True
+
+        return new_state, reward, done

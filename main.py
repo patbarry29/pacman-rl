@@ -13,6 +13,7 @@ from environment.grid_env import GridEnv
 from agents.q_learning_agent import QLearningAgent
 from visualisation.q_table_visualizer import plot_final_policy, make_policy_gif
 from utils.evaluation import evaluate_policy
+from agents.monte_carlo_tree_search import TreeNode, monte_carlo_search, update_root_after_move
 
 def run_human_game(env, renderer):
     """
@@ -201,7 +202,8 @@ def display_menu_and_get_choice():
 
 def main():
     """ Main function to initialize components and run the selected mode. """
-    grid_filepath = config.ENV_PARAMS.get('grid_filepath', "grid.npy")
+    # grid_filepath = config.ENV_PARAMS.get('grid_filepath', "grid.npy")
+    grid_filepath = "grid.npy"
     grid, start_pos, goal_pos, ghost_positions = load_grid(grid_filepath)
     env = GridEnv(grid, start_pos, goal_pos, ghost_positions)
     renderer = PygameRenderer(env.height, env.width)
@@ -230,3 +232,65 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+    grid_filepath = config.ENV_PARAMS.get('grid_filepath', "grid.npy")
+    grid, start_pos, goal_pos, ghost_positions = load_grid(grid_filepath)
+    env = GridEnv(grid, start_pos, goal_pos, ghost_positions)
+    player_pos = env.reset()
+    root = TreeNode(player_pos)
+
+    done = False
+    total_reward = 0
+    i = 0
+
+    while not done:
+        action = monte_carlo_search(env, root, iterations=500, C=1.41)
+        next_state, reward, done = env.step(action)
+        total_reward += reward
+        # Re-root the tree at the chosen child
+        root = update_root_after_move(root, action, next_state)
+        print(f"Action {i}: moved", next(key for key, value in config.ACTIONS.items() if value == action))
+
+        i += 1
+
+        if reward == config.REWARDS['GOAL']:
+            print(f'\nVICTORY! in {i} steps\n')
+        elif reward == config.REWARDS['GHOST']:
+            print(f'\nDEFEAT! in {i} steps\n')
+
+    print("Game finished with total reward:", total_reward)
+
+    # Average Performance
+    losses = 0
+    i = 0
+    wins = 0
+    while i < 100:
+        player_pos = env.reset()
+        root = TreeNode(player_pos)
+        done = False
+
+        while not done:
+            action = monte_carlo_search(env, root, iterations=1000, C=2)
+            next_state, reward, done = env.step(action)
+            total_reward += reward
+            # Re-root the tree at the chosen child
+            root = update_root_after_move(root, action, next_state)
+
+            i += 1
+
+            if reward == config.REWARDS['GOAL']:
+                wins += 1
+            if reward == config.REWARDS['GHOST']:
+                losses += 1
+
+    print(wins/100)
+    print(losses/100)

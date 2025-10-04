@@ -93,9 +93,6 @@ class QLearningAgent:
             self.history_steps.append(steps_this_episode)
             self.history_reward.append(total_reward)
 
-            # if (episode + 1) % 50 == 0:
-            #     print(f"Episode {episode + 1}/{num_episodes}: Epsilon={self.epsilon:.2f}, Min steps to goal={min_steps_to_goal}")
-
         print(f"Training finished after {num_episodes} episodes. Min steps to goal: {min_steps_to_goal}")
 
         return self.q_table, self.history_values, self.history_actions

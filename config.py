@@ -1,4 +1,4 @@
-CELL_SIZE = 50
+CELL_SIZE = 20
 
 FPS = 60
 
